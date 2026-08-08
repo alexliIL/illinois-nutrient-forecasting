@@ -23,6 +23,7 @@ NUT_CSV = "data/Illinois_nutrient_and_sediment_concentrations_wy2016-2021.csv"
 WX_CSV  = "data/weather_daymet.csv"
 TARGET_COL = "total_p_mg_per_l"
 SPIKE_PCTILE = 90
+SPIKE_WARMUP = 60                 # min days of history before a river's threshold is trusted
 HORIZON = 7
 
 # ----------------------------------------------------------------------
@@ -77,8 +78,12 @@ print("Weather merge coverage: {:.1%} of nutrient rows have rain_7d"
 # TARGET
 # ----------------------------------------------------------------------
 def build_target(g):
-    thr = np.percentile(g["log_p"], SPIKE_PCTILE)
-    g["is_spike"] = (g["log_p"] > thr).astype(int)
+    g = g.sort_values("datetime").reset_index(drop=True)
+    # expanding (causal) per-river threshold: uses only data up to and including day t,
+    # not hindsight over the river's full record.
+    thr = g["log_p"].expanding(min_periods=SPIKE_WARMUP).quantile(SPIKE_PCTILE / 100)
+    g["is_spike"] = (g["log_p"] > thr).astype(float)
+    g.loc[thr.isna(), "is_spike"] = np.nan
     fut = pd.concat([g["is_spike"].shift(-k) for k in range(1, HORIZON + 1)], axis=1)
     g["y"] = (fut.sum(axis=1) > 0).astype(float)
     g.loc[fut.isna().any(axis=1), "y"] = np.nan
@@ -112,9 +117,15 @@ M2_FEATS = M1_FEATS + WX_FEATS
 
 # ----------------------------------------------------------------------
 # EVALUATION: leave-one-river-out, for a given feature set
+#
+# Both feature sets are evaluated on the SAME rows (those with all M2
+# features present, a superset requirement) so the M1 vs M2 comparison
+# isolates the effect of adding weather, not differing row availability.
 # ----------------------------------------------------------------------
+COMMON_ROWS = df.dropna(subset=M2_FEATS + ["y"]).copy()
+
 def evaluate(feats, label):
-    mdf = df.dropna(subset=feats + ["y"]).copy()
+    mdf = COMMON_ROWS
     sites = sorted(mdf["site"].unique())
     aps, bases = [], []
     for test_site in sites:

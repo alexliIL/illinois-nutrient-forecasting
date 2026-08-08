@@ -28,6 +28,7 @@ from sklearn.metrics import average_precision_score, roc_auc_score
 CSV = "data/Illinois_nutrient_and_sediment_concentrations_wy2016-2021.csv"
 TARGET_COL = "total_p_mg_per_l"   # start with phosphorus; swap to no3_mg_per_l later
 SPIKE_PCTILE = 90                 # a "spike day" = above this per-river percentile
+SPIKE_WARMUP = 60                 # min days of history before a river's threshold is trusted
 HORIZON = 7                       # predict a spike within the next 1..7 days
 
 # ----------------------------------------------------------------------
@@ -37,16 +38,22 @@ df = pd.read_csv(CSV, parse_dates=["datetime"])
 df = df.sort_values(["USGS_site", "datetime"]).reset_index(drop=True)
 df["site"] = df["USGS_site"]  # keep a data copy that survives groupby-apply
 
-# log-transform the concentration + flow (log1p on q since flow can be near 0)
+# log-transform the concentration + flow (log1p on q since flow can be near 0;
+# clip avoids log1p(x<-1) -> NaN on the handful of negative-discharge readings)
 df["log_p"] = np.log(df[TARGET_COL])
-df["log_q"] = np.log1p(df["q"])
+df["log_q"] = np.log1p(df["q"].clip(lower=0))
 
 # ----------------------------------------------------------------------
 # TARGET: per-river spike, then "spike in next HORIZON days"
 # ----------------------------------------------------------------------
 def build_target(g):
-    thr = np.percentile(g["log_p"], SPIKE_PCTILE)      # per-river threshold
-    g["is_spike"] = (g["log_p"] > thr).astype(int)
+    g = g.sort_values("datetime").reset_index(drop=True)
+    # expanding (causal) per-river threshold: uses only data up to and including day t,
+    # so "spike" is defined the way a live system would see it -- not with hindsight
+    # over the river's full 2015-2021 record.
+    thr = g["log_p"].expanding(min_periods=SPIKE_WARMUP).quantile(SPIKE_PCTILE / 100)
+    g["is_spike"] = (g["log_p"] > thr).astype(float)
+    g.loc[thr.isna(), "is_spike"] = np.nan   # no reliable threshold yet (warmup period)
     # future window: does a spike occur on any of days t+1..t+HORIZON?
     fut = pd.concat([g["is_spike"].shift(-k) for k in range(1, HORIZON + 1)], axis=1)
     g["y"] = (fut.sum(axis=1) > 0).astype(float)
