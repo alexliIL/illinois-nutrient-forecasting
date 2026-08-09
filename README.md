@@ -69,16 +69,18 @@ python src/nutrient_spike_m2_both.py  # M1 vs M2, phosphorus + nitrate
 
 ## Results (current)
 
-Leave-one-river-out, phosphorus, mean PR-AUC (base rate ≈ 0.284):
+Leave-one-river-out, mean PR-AUC:
 
-| model | PR-AUC | lift over base rate |
-|---|---|---|
-| M1 (river-state) | 0.496 | 1.75x |
-| M2 (river + weather) | 0.540 | 1.90x |
+| nutrient | model | PR-AUC | base rate | lift over base rate |
+|---|---|---|---|---|
+| phosphorus | M1 (river-state) | 0.496 | 0.284 | 1.75x |
+| phosphorus | M2 (river + weather) | 0.540 | 0.284 | 1.90x |
+| nitrate | M1 (river-state) | 0.486 | 0.169 | 2.88x |
+| nitrate | M2 (river + weather) | 0.478 | 0.169 | 2.84x |
 
-Weather adds **+0.044 PR-AUC**, consistent across all 8 rivers (paired
-significance confirmed via Wilcoxon signed-rank, p < 0.01).
+For phosphorus, weather adds **+0.044 PR-AUC**, consistent across all 8
+rivers (paired significance confirmed via Wilcoxon signed-rank, p < 0.01).
 
-For nitrate, weather has a small **negative** effect (−0.008 PR-AUC),
+For nitrate, weather has a small **negative** effect (**−0.008 PR-AUC**),
 suggesting nitrate spikes may be driven more by baseflow/leaching dynamics
 than the storm-runoff mechanism that drives phosphorus.
